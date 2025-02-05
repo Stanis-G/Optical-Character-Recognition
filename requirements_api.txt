@@ -1,0 +1,8 @@
+flask
+pillow
+protobuf
+python-dotenv
+sentencepiece
+tiktoken
+torch
+transformers
