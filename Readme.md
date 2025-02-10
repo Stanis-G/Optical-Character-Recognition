@@ -8,10 +8,10 @@ CER (Character Error Rate) metric is used for model performance evaluation. For 
 # Model service
 The model can be used via telegram bot. To run the bot the following steps have to be done:
 1. Create docker image for model api
-- Specify model path, host and port in trocr/api/.env file. Export variables into shell by executing `source .env`
+- Specify model path (MODEL_NAME), HOST and PORT in trocr/api/.env file. Export variables into shell by executing `source .env`
 - Run `docker build -f trocr/api/Dockerfile --build-arg MODEL_NAME=$MODEL_NAME -t trocr_api .` from project root to build docker image
 2. Create docker image for telegram bot
-- Specify bot access token and model api container url in trocr/bot/.env
+- Specify bot access token (API_TOKEN) and model api container url (API_URL) in trocr/bot/.env
 - Run `docker build -f trocr/bot/Dockerfile -t trocr_bot .` from project root to build docker image
 3. Run containers in shared network
 - Create network via `docker network create trocr_network`
