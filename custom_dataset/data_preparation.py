@@ -7,9 +7,9 @@ from torch.utils.data import IterableDataset
 
 class CustomDataset(IterableDataset):
 
-    def __init__(self, batch_size, indeces=None):
+    def __init__(self, batch_size, data_fold, indeces=None):
         self.batch_size = batch_size
-        self.data_dir = os.path.join('custom_dataset', 'data')
+        self.data_dir = os.path.join('custom_dataset', data_fold)
         self.images_path = os.path.join(self.data_dir, 'images')
         self.texts_path = os.path.join(self.data_dir, 'texts')
         self.indeces = indeces # Indeces are needed to divide data into subsets
@@ -87,12 +87,13 @@ class MappedDataset(IterableDataset):
 
 class CustomDataProcessor:
 
-    def __init__(self, processor):
+    def __init__(self, processor, data_fold):
         self.processor = processor
+        self.data_fold = data_fold
 
 
     def split(self, train_frac, val_frac, dataset_batch_size):
-        dataset = CustomDataset(batch_size=dataset_batch_size)
+        dataset = CustomDataset(batch_size=dataset_batch_size, data_fold=self.data_fold)
         dataset_size = len(dataset)
 
         random.seed(0)
@@ -106,9 +107,9 @@ class CustomDataProcessor:
         test_indeces = all_indeces[train_dataset_size + val_dataset_size:]
 
         # Make iterable datasets, which are iterated over chunks of data
-        train_dataset = CustomDataset(batch_size=dataset_batch_size, indeces=train_indeces)
-        val_dataset = CustomDataset(batch_size=dataset_batch_size, indeces=val_indeces)
-        test_dataset = CustomDataset(batch_size=dataset_batch_size, indeces=test_indeces)
+        train_dataset = CustomDataset(batch_size=dataset_batch_size, data_fold=self.data_fold, indeces=train_indeces)
+        val_dataset = CustomDataset(batch_size=dataset_batch_size, data_fold=self.data_fold, indeces=val_indeces)
+        test_dataset = CustomDataset(batch_size=dataset_batch_size, data_fold=self.data_fold, indeces=test_indeces)
 
         return train_dataset, val_dataset, test_dataset, train_dataset_size
 

@@ -1,11 +1,15 @@
 import json
 import logging
 import os
+import sys
+project_root = os.path.abspath(os.path.join(os.getcwd(), '../..'))
+sys.path.append(project_root)
+
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 import evaluate
-from utils_inf import inference
+from trocr.utils.utils_inf import inference
 
 # ----------------------------------------------------------------------------------------
 # Common functions

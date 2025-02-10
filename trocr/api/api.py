@@ -5,7 +5,7 @@ from PIL import Image
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify
 from transformers import VisionEncoderDecoderModel, TrOCRProcessor
-from utils_inf import inference
+from trocr.utils.utils_inf import inference
 
 load_dotenv()
 
