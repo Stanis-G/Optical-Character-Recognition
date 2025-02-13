@@ -6,5 +6,5 @@ RUN pip install -U pip && \
     pip install -r /app/requirements_api.txt
 COPY trocr/train/${MODEL_NAME} /app/${MODEL_NAME}
 COPY trocr/api/api.py /app
-COPY trocr/utils/utils_inf.py /app
+COPY trocr/utils/utils_inf.py /app/trocr/utils/utils_inf.py
 CMD ["python", "api.py"]

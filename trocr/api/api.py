@@ -13,8 +13,8 @@ app = Flask(__name__)
 
 # Load configurations from environment variables
 MODEL_NAME = os.getenv("MODEL_NAME", "trocr_model")
-HOST = os.getenv("HOST", "0.0.0.0")
-PORT = int(os.getenv("PORT", "5000"))
+API_HOST = os.getenv("API_HOST", "0.0.0.0")
+API_PORT = int(os.getenv("API_PORT", "5000"))
 
 # Load the model and tokenizer
 model = VisionEncoderDecoderModel.from_pretrained(MODEL_NAME)
@@ -34,4 +34,4 @@ def generate():
     return jsonify({"generated_text": generated_text})
 
 if __name__ == '__main__':
-    app.run(host=HOST, port=PORT)
+    app.run(host=API_HOST, port=API_PORT)

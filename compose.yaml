@@ -1,0 +1,28 @@
+services:
+  trocr_api:
+    build:
+      dockerfile: trocr/api/Dockerfile
+      args:
+        MODEL_NAME: ${MODEL_NAME}
+    container_name: trocr_api
+    env_file:
+      - .env
+    ports:
+      - "${API_PORT}:${API_PORT}"
+    networks:
+      - trocr_network
+  
+  trocr_bot:
+    build:
+      dockerfile: trocr/bot/Dockerfile
+    container_name: trocr_bot
+    env_file:
+      - .env
+    depends_on:
+      - trocr_api
+    networks:
+      - trocr_network
+
+networks:
+  trocr_network:
+    driver: bridge
