@@ -7,6 +7,7 @@ sys.path.append(project_root)
 
 import cv2
 import numpy as np
+import torch
 import matplotlib.pyplot as plt
 import evaluate
 from trocr.utils.utils_inf import inference
@@ -97,6 +98,20 @@ def save_model_and_history(run_name, trainer):
 
     history_path = ['models', run_name, 'history.json']
     save_history(trainer.state.log_history, os.path.join(*history_path))
+
+
+def preprocess_logits_for_metrics(logits, labels):
+    output_ids = torch.argmax(logits[0], dim=-1)
+    return output_ids, labels
+
+
+def get_compute_metrics(processor):
+    def compute_metrics(eval_pred):
+        output_ids, labels_ids = eval_pred
+        words_predicted = processor.tokenizer.batch_decode(output_ids[0], skip_special_tokens=False)
+        words_labels = processor.tokenizer.batch_decode(labels_ids, skip_special_tokens=False)
+        return {'cer': cer_score.compute(predictions=words_predicted, references=words_labels)}
+    return compute_metrics
 
 # ----------------------------------------------------------------------------------------
 # YOLO functions

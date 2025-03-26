@@ -1,54 +1,60 @@
+import boto3
+from botocore.config import Config
+from botocore.exceptions import ConnectionClosedError
+from dotenv import load_dotenv
+from io import BytesIO
+import time
 import os
 import random
 from PIL import Image
 import numpy as np
 from torch.utils.data import IterableDataset
 
+load_dotenv()
 
-class CustomDataset(IterableDataset):
 
-    def __init__(self, batch_size, data_fold, indeces=None):
+def profile(func):
+    def wrapper(self, *args, **kwargs):
+        DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+        if DEBUG:
+            start = time.time()
+            result = func(self, *args, **kwargs)
+            end = time.time()
+            with open('profile_logs.txt', 'a') as f:
+                f.write(f'{func.__name__}: {end - start}\n')
+            return result
+        return func(self, *args, **kwargs)
+    return wrapper
+
+
+class CustomDatasetBase(IterableDataset):
+
+    def __init__(self, batch_size, indeces=None):
         self.batch_size = batch_size
-        self.data_dir = os.path.join('custom_dataset', data_fold)
-        self.images_path = os.path.join(self.data_dir, 'images')
-        self.texts_path = os.path.join(self.data_dir, 'texts')
         self.indeces = indeces # Indeces are needed to divide data into subsets
+        self.image_names = []
+        self.text_names = []
 
-
+    @profile
     def __len__(self):
-        length = len(self.indeces) if self.indeces else len(os.listdir(self.texts_path))
+        length = len(self.indeces) if self.indeces else len(self.text_names)
         return length
     
 
     def __getitem__(self, idx):
-        image_name = sorted(os.listdir(self.images_path))[idx]
-        text_name = sorted(os.listdir(self.texts_path))[idx]
-        img_path = os.path.join(self.images_path, image_name)
-        text_path = os.path.join(self.texts_path, text_name)
-        img = Image.open(img_path, mode='r')
-        with open(text_path, 'r', encoding='utf-8') as f:
-                text = f.read()
-        return img, text
+        image_name = self.image_names[idx]
+        text_name = self.text_names[idx]
+        return image_name, text_name
 
 
+    @profile
     def __iter__(self):
         """Read data in chunks of size self.batch_size"""
 
-        if self.indeces:
-            image_names = np.array(os.listdir(self.images_path))[self.indeces]
-            text_names = np.array(os.listdir(self.texts_path))[self.indeces]
-        else:
-            image_names = os.listdir(self.images_path)
-            text_names = os.listdir(self.texts_path)
-
         images_batch, text_batch = [], []
         # Form one chunk, loaded into memory (not the actual batch)
-        for image_name, text_name in zip(image_names, text_names):
-            image_path = os.path.join(self.images_path, image_name)
-            text_path = os.path.join(self.texts_path, text_name)
-            img = Image.open(image_path, mode='r')
-            with open(text_path, 'r', encoding='utf-8') as f:
-                text = f.read()
+        for idx in range(len(self)):
+            img, text = self.__getitem__(idx)
 
             images_batch.append(np.array(img))
             text_batch.append(text)
@@ -64,11 +70,104 @@ class CustomDataset(IterableDataset):
             images_batch, text_batch = [], []
 
 
+class CustomDatasetLocal(CustomDatasetBase):
+
+    @profile
+    def __init__(self, batch_size, data_fold, indeces=None):
+        super().__init__(batch_size=batch_size, indeces=indeces)
+        self.data_dir = data_fold
+        self.images_path = os.path.join(self.data_dir, 'images')
+        self.texts_path = os.path.join(self.data_dir, 'texts')
+        self.image_names = sorted(os.listdir(self.images_path))
+        self.text_names = sorted(os.listdir(self.texts_path))
+
+    
+    @profile
+    def __getitem__(self, idx):
+        image_name, text_name = super().__getitem__(idx)
+        img_path = os.path.join(self.images_path, image_name)
+        text_path = os.path.join(self.texts_path, text_name)
+        img = Image.open(img_path, mode='r')
+        with open(text_path, 'r', encoding='utf-8') as f:
+            text = f.read()
+        return img, text
+
+
+class CustomDatasetS3(CustomDatasetBase):
+
+    @profile
+    def __init__(self, batch_size, bucket='ocr-dataset', indeces=None):
+        super().__init__(batch_size=batch_size, indeces=indeces)
+        MINIO_URL = f'http://localhost:{os.getenv("MINIO_API_PORT")}'
+        self.MINIO_URL = MINIO_URL
+        self.MINIO_ROOT_USER = os.getenv("MINIO_ROOT_USER")
+        self.MINIO_ROOT_PASSWORD = os.getenv("MINIO_ROOT_PASSWORD")
+        self.bucket = bucket
+        self._get_s3_client()
+        self.images_prefix = 'images'
+        self.texts_prefix = 'texts'
+        self.image_names = sorted(self._list_objects_in_bucket('images'))
+        self.text_names = sorted(self._list_objects_in_bucket('texts'))
+
+
+    @profile
+    def _get_s3_client(self, retries=10):
+        config = Config(retries={'max_attempts': retries, 'mode': 'standard'})
+        session = boto3.session.Session()
+        s3 = session.client(
+            service_name='s3',
+            endpoint_url=self.MINIO_URL,
+            aws_access_key_id=self.MINIO_ROOT_USER,
+            aws_secret_access_key=self.MINIO_ROOT_PASSWORD,
+            config=config,
+        )
+        self.s3 = s3
+    
+
+    @profile
+    def _read_file_from_s3(self, file_name):
+        response = self.s3.get_object(Bucket=self.bucket, Key=file_name)
+
+        # Read data
+        file_data = response['Body'].read()
+
+        if file_name.startswith('texts') or file_name.startswith('pages'):
+            # Convert bytes to string (if text file)
+            return file_data.decode("utf-8")
+        elif file_name.startswith('images'):
+            # Open image using PIL
+            file_data = BytesIO(file_data)
+            return Image.open(file_data)
+
+
+    @profile
+    def _list_objects_in_bucket(self, prefix, page_size=1000):
+        objects = []
+        paginator = self.s3.get_paginator("list_objects_v2")
+
+        for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix, PaginationConfig={'PageSize': page_size}):
+            objects.extend(obj["Key"] for obj in page.get("Contents", []))
+
+        return objects
+
+
+    @profile
+    def __getitem__(self, idx):
+        image_name, text_name = super().__getitem__(idx)
+        text = self._read_file_from_s3(text_name)
+        img = self._read_file_from_s3(image_name)
+        return img, text
+
+
 class MappedDataset(IterableDataset):
 
     def __init__(self, dataset, processor):
         self.dataset = dataset
         self.processor = processor
+
+    
+    def __len__(self):
+        return len(self.dataset)
 
 
     def __iter__(self):
@@ -85,15 +184,25 @@ class MappedDataset(IterableDataset):
                 }
 
 
+class DatasetFactory:
+
+    @classmethod
+    def create_dataset(self, dataset_type):
+        classes = {'local': CustomDatasetLocal, 'S3': CustomDatasetS3}
+        return classes[dataset_type]
+    
+
 class CustomDataProcessor:
 
-    def __init__(self, processor, data_fold):
+    def __init__(self, processor):
         self.processor = processor
-        self.data_fold = data_fold
 
 
-    def split(self, train_frac, val_frac, dataset_batch_size):
-        dataset = CustomDataset(batch_size=dataset_batch_size, data_fold=self.data_fold)
+    def split(self, train_frac, val_frac, dataset_type, **dataset_params):
+
+        dataset_class = DatasetFactory().create_dataset(dataset_type)
+
+        dataset = dataset_class(**dataset_params)
         dataset_size = len(dataset)
 
         random.seed(0)
@@ -107,21 +216,27 @@ class CustomDataProcessor:
         test_indeces = all_indeces[train_dataset_size + val_dataset_size:]
 
         # Make iterable datasets, which are iterated over chunks of data
-        train_dataset = CustomDataset(batch_size=dataset_batch_size, data_fold=self.data_fold, indeces=train_indeces)
-        val_dataset = CustomDataset(batch_size=dataset_batch_size, data_fold=self.data_fold, indeces=val_indeces)
-        test_dataset = CustomDataset(batch_size=dataset_batch_size, data_fold=self.data_fold, indeces=test_indeces)
+        train_dataset = dataset_class(indeces=train_indeces, **dataset_params)
+        val_dataset = dataset_class(indeces=val_indeces, **dataset_params)
+        test_dataset = dataset_class(indeces=test_indeces, **dataset_params)
 
         return train_dataset, val_dataset, test_dataset, train_dataset_size
 
 
     def __call__(
             self,
-            dataset_batch_size=1000, # size of chunks loaded from IterableDataset
+            dataset_type,
             train_frac=0.85,
             val_frac=0.1,
+            **dataset_params,
     ):
 
-        train_dataset, val_dataset, test_dataset, train_dataset_size = self.split(train_frac, val_frac, dataset_batch_size)
+        train_dataset, val_dataset, test_dataset, train_dataset_size = self.split(
+            train_frac,
+            val_frac,
+            dataset_type,
+            **dataset_params,
+        )
 
         # Process the data, returned by dataset, and output data samples by one
         train_dataset = MappedDataset(train_dataset, self.processor)
