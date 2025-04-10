@@ -9,8 +9,8 @@ import cv2
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
-import evaluate
-from trocr.utils.utils_inf import inference
+
+from utils.utils import CER_SCORE
 
 # ----------------------------------------------------------------------------------------
 # Common functions
@@ -28,58 +28,27 @@ def plot_img(img, figsize=(9, 3)):
     return fig
 
 
-def plot_history(epochs, history, run_name, figsize=(15, 10)):
-    plt.figure(figsize=figsize)
-    legend = []
+def plot_history(epochs, history, run_name=None, figsize=(15, 10)):
+    fig, ax = plt.subplots(figsize=figsize)
+
     for metric_name, metric_values in history.items():
-        plt.plot(epochs, metric_values)
-        legend.append(metric_name)
-    plt.legend(legend)
-    plt.xlabel('Epoch')
-    plt.ylabel('Metric')
+        ax.plot(epochs, metric_values, label=metric_name)
+    
+    ax.legend()
+    ax.set_xlabel('Epoch')
+    ax.set_ylabel('Metric')
+
     if run_name:
-        model_path = os.path.join(*['models', run_name, 'history_plot.png'])
-        plt.savefig(model_path)
+        os.makedirs(os.path.join("models", run_name), exist_ok=True)
+        model_path = os.path.join("models", run_name, "history_plot.png")
+        fig.savefig(model_path)
+
+    return fig
 
 
 # ----------------------------------------------------------------------------------------
 # TrOCR functions
 # ----------------------------------------------------------------------------------------
-
-
-# CER (Character Error Rate) metric = (S + D + I) / N = (S + D + I) / (S + D + C)
-# S - num of substitutions (means how much characters in a word were replaced)
-# D - num of deletions
-# I - num of insertions
-# C - num of correct characters
-# N - num of characters in the reference
-cer_score = evaluate.load(
-    "cer", # https://huggingface.co/spaces/evaluate-metric/cer
-    module_type='metric', # "metric" stands for evaluating a model
-)
-
-
-def evaluate_model(
-        model, processor, indeces,
-        score_fn=cer_score, max_new_tokens=100,
-        data_path='custom_dataset/data',
-    ):
-    """Generate text using image and compare it to the original text. Calc metric"""
-
-    texts_lst, generated_texts_lst = [], []
-    for sample_index in indeces:
-        
-        # Read data, generate text
-        with open(f'{data_path}/texts/title_{sample_index}.txt', 'r') as f:
-            text = f.read()
-        _, generated_text = inference(f'{data_path}/images/image_{sample_index}.png', model, processor, max_new_tokens)
-        if text:
-            texts_lst.append(text)
-            generated_texts_lst.append(generated_text)
-
-    metric_value = score_fn.compute(predictions=generated_texts_lst, references=texts_lst)
-
-    return texts_lst, generated_texts_lst, metric_value
 
 
 def save_history(history, file_path):
@@ -110,7 +79,7 @@ def get_compute_metrics(processor):
         output_ids, labels_ids = eval_pred
         words_predicted = processor.tokenizer.batch_decode(output_ids[0], skip_special_tokens=False)
         words_labels = processor.tokenizer.batch_decode(labels_ids, skip_special_tokens=False)
-        return {'cer': cer_score.compute(predictions=words_predicted, references=words_labels)}
+        return {'cer': CER_SCORE.compute(predictions=words_predicted, references=words_labels)}
     return compute_metrics
 
 # ----------------------------------------------------------------------------------------

@@ -17,11 +17,12 @@ def profile(func):
     def wrapper(self, *args, **kwargs):
         DEBUG = os.getenv("DEBUG", "false").lower() == "true"
         if DEBUG:
-            start = time.time()
-            result = func(self, *args, **kwargs)
-            end = time.time()
             with open('profile_logs.txt', 'a') as f:
-                f.write(f'{func.__name__}: {end - start}\n')
+                f.write(f'CALL {func.__name__}n')
+                start = time.time()
+                result = func(self, *args, **kwargs)
+                end = time.time()
+                f.write(f'END {func.__name__}: {end - start}\n')
             return result
         return func(self, *args, **kwargs)
     return wrapper
@@ -42,8 +43,9 @@ class CustomDatasetBase(IterableDataset):
     
 
     def __getitem__(self, idx):
-        image_name = self.image_names[idx]
-        text_name = self.text_names[idx]
+        idx_in_dataset = self.indeces[idx] if self.indeces else idx
+        image_name = self.image_names[idx_in_dataset]
+        text_name = self.text_names[idx_in_dataset]
         return image_name, text_name
 
 
@@ -73,9 +75,9 @@ class CustomDatasetBase(IterableDataset):
 class CustomDatasetLocal(CustomDatasetBase):
 
     @profile
-    def __init__(self, batch_size, data_fold, indeces=None):
+    def __init__(self, batch_size, dataset_name, indeces=None):
         super().__init__(batch_size=batch_size, indeces=indeces)
-        self.data_dir = data_fold
+        self.data_dir = dataset_name
         self.images_path = os.path.join(self.data_dir, 'images')
         self.texts_path = os.path.join(self.data_dir, 'texts')
         self.image_names = sorted(os.listdir(self.images_path))
@@ -96,13 +98,13 @@ class CustomDatasetLocal(CustomDatasetBase):
 class CustomDatasetS3(CustomDatasetBase):
 
     @profile
-    def __init__(self, batch_size, bucket='ocr-dataset', indeces=None):
+    def __init__(self, batch_size, dataset_name, indeces=None):
         super().__init__(batch_size=batch_size, indeces=indeces)
         MINIO_URL = f'http://localhost:{os.getenv("MINIO_API_PORT")}'
         self.MINIO_URL = MINIO_URL
         self.MINIO_ROOT_USER = os.getenv("MINIO_ROOT_USER")
         self.MINIO_ROOT_PASSWORD = os.getenv("MINIO_ROOT_PASSWORD")
-        self.bucket = bucket
+        self.bucket = dataset_name
         self._get_s3_client()
         self.images_prefix = 'images'
         self.texts_prefix = 'texts'
@@ -168,6 +170,10 @@ class MappedDataset(IterableDataset):
     
     def __len__(self):
         return len(self.dataset)
+
+
+    def __getitem__(self, idx):
+        return self.dataset[idx]
 
 
     def __iter__(self):

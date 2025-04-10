@@ -1,4 +1,17 @@
 from PIL import Image
+import evaluate
+
+
+# CER (Character Error Rate) metric = (S + D + I) / N = (S + D + I) / (S + D + C)
+# S - num of substitutions (means how much characters in a word were replaced)
+# D - num of deletions
+# I - num of insertions
+# C - num of correct characters
+# N - num of characters in the reference
+CER_SCORE = evaluate.load(
+    "cer", # https://huggingface.co/spaces/evaluate-metric/cer
+    module_type='metric', # "metric" stands for evaluating a model
+)
 
 
 def inference(img, model, processor, max_new_tokens=100):
