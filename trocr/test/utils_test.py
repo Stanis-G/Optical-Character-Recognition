@@ -1,4 +1,4 @@
-from utils.utils import CER_SCORE, inference
+from trocr.utils.utils import CER_SCORE, inference
 
 
 def evaluate_model(

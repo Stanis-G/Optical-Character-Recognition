@@ -1,6 +1,8 @@
+from io import BytesIO
 import json
 import logging
 import os
+from PIL import Image
 import sys
 project_root = os.path.abspath(os.path.join(os.getcwd(), '../..'))
 sys.path.append(project_root)
@@ -10,7 +12,7 @@ import numpy as np
 import torch
 import matplotlib.pyplot as plt
 
-from utils.utils import CER_SCORE
+from trocr.utils.utils import CER_SCORE
 
 # ----------------------------------------------------------------------------------------
 # Common functions
@@ -28,7 +30,7 @@ def plot_img(img, figsize=(9, 3)):
     return fig
 
 
-def plot_history(epochs, history, run_name=None, figsize=(15, 10)):
+def plot_history(epochs, history, run_name=None, figsize=(15, 10), to_image=False):
     fig, ax = plt.subplots(figsize=figsize)
 
     for metric_name, metric_values in history.items():
@@ -42,6 +44,12 @@ def plot_history(epochs, history, run_name=None, figsize=(15, 10)):
         os.makedirs(os.path.join("models", run_name), exist_ok=True)
         model_path = os.path.join("models", run_name, "history_plot.png")
         fig.savefig(model_path)
+
+    if to_image:
+        buf = BytesIO()
+        fig.savefig(buf, format='png')
+        buf.seek(0)
+        return Image.open(buf)
 
     return fig
 
