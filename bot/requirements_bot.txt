@@ -1,0 +1,6 @@
+python-dotenv
+PyTelegramBotAPI
+langchain
+langchain_mistralai
+langgraph
+transformers

@@ -89,35 +89,3 @@ def get_compute_metrics(processor):
         words_labels = processor.tokenizer.batch_decode(labels_ids, skip_special_tokens=False)
         return {'cer': CER_SCORE.compute(predictions=words_predicted, references=words_labels)}
     return compute_metrics
-
-# ----------------------------------------------------------------------------------------
-# YOLO functions
-# ----------------------------------------------------------------------------------------
-
-def plot_boxes(sample, to_plot=False, fig_width=5):
-    """Add label boxes to image. Works with 'howard-hou/OCR-VQA' dataset"""
-
-    img = np.array(sample['image'])
-    boxes = [i['bounding_box'] for i in sample['ocr_info']]
-
-    img_height, img_width = sample['image_height'], sample['image_width']
-    for box in boxes:
-        top_left_x = box['top_left_x'] * img_width
-        top_left_y = box['top_left_y'] * img_height
-        box_width = box['width'] * img_width
-        box_height = box['height'] * img_height
-        upper_left_corner = (
-            int(top_left_x),
-            int(top_left_y),
-        )
-        lower_right_corner = (
-            int(top_left_x + box_width),
-            int(top_left_y + box_height),
-        )
-        img = cv2.rectangle(img, upper_left_corner, lower_right_corner, (0, 255, 0), 2)  # Green color, 2-pixel thickness
-    
-    if to_plot:
-        aspect_ratio = img_height / img_width
-        plot_img(img, figsize=(fig_width, int(fig_width * aspect_ratio)))
-    
-    return img

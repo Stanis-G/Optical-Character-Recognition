@@ -1,12 +1,13 @@
 import boto3
 from botocore.config import Config
-from botocore.exceptions import ConnectionClosedError
 from dotenv import load_dotenv
 from io import BytesIO
 import time
 import os
 import random
+import shutil
 from PIL import Image
+import yaml
 import numpy as np
 from torch.utils.data import IterableDataset
 
@@ -28,13 +29,14 @@ def profile(func):
     return wrapper
 
 
-class CustomDatasetBase(IterableDataset):
+class TrOCRDatasetBase(IterableDataset):
 
     def __init__(self, batch_size, indeces=None):
         self.batch_size = batch_size
         self.indeces = indeces # Indeces are needed to divide data into subsets
         self.image_names = []
         self.text_names = []
+
 
     @profile
     def __len__(self):
@@ -72,7 +74,7 @@ class CustomDatasetBase(IterableDataset):
             images_batch, text_batch = [], []
 
 
-class CustomDatasetLocal(CustomDatasetBase):
+class TrOCRDatasetLocal(TrOCRDatasetBase):
 
     @profile
     def __init__(self, batch_size, dataset_name, indeces=None):
@@ -80,8 +82,18 @@ class CustomDatasetLocal(CustomDatasetBase):
         self.data_dir = dataset_name
         self.images_path = os.path.join(self.data_dir, 'images')
         self.texts_path = os.path.join(self.data_dir, 'texts')
-        self.image_names = sorted(os.listdir(self.images_path))
-        self.text_names = sorted(os.listdir(self.texts_path))
+        self.image_names = sorted(self._read_all(self.images_path))
+        self.text_names = sorted(self._read_all(self.texts_path))
+
+
+    @profile
+    def _read_all(self, prefix):
+        full_path = os.path.join(self.data_dir, prefix)
+        file_names = os.listdir(full_path)
+        if self.indeces:
+            file_names = [file_names[i] for i in self.indeces]
+
+        return file_names
 
     
     @profile
@@ -95,7 +107,7 @@ class CustomDatasetLocal(CustomDatasetBase):
         return img, text
 
 
-class CustomDatasetS3(CustomDatasetBase):
+class TrOCRDatasetS3(TrOCRDatasetBase):
 
     @profile
     def __init__(self, batch_size, dataset_name, indeces=None):
@@ -108,8 +120,8 @@ class CustomDatasetS3(CustomDatasetBase):
         self._get_s3_client()
         self.images_prefix = 'images'
         self.texts_prefix = 'texts'
-        self.image_names = sorted(self._list_objects_in_bucket('images'))
-        self.text_names = sorted(self._list_objects_in_bucket('texts'))
+        self.image_names = sorted(self._read_all('images'))
+        self.text_names = sorted(self._read_all('texts'))
 
 
     @profile
@@ -143,12 +155,15 @@ class CustomDatasetS3(CustomDatasetBase):
 
 
     @profile
-    def _list_objects_in_bucket(self, prefix, page_size=1000):
+    def _read_all(self, prefix, page_size=1000):
         objects = []
         paginator = self.s3.get_paginator("list_objects_v2")
 
         for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix, PaginationConfig={'PageSize': page_size}):
             objects.extend(obj["Key"] for obj in page.get("Contents", []))
+
+        if self.indeces:
+            objects = [objects[i] for i in self.indeces]
 
         return objects
 
@@ -179,6 +194,9 @@ class MappedDataset(IterableDataset):
     def __iter__(self):
         """Process chunks from dataset using processor and yielding samples by one"""
 
+        if not self.processor:
+            raise ValueError("You can't iterate over dataset while processor is not specified")
+
         for images_batch, text_batch in self.dataset:
             # Process the whole chunk at once, but return samples by one
             pixel_values = self.processor(images_batch, return_tensors='pt').pixel_values
@@ -194,15 +212,29 @@ class DatasetFactory:
 
     @classmethod
     def create_dataset(self, dataset_type):
-        classes = {'local': CustomDatasetLocal, 'S3': CustomDatasetS3}
+        classes = {'local': TrOCRDatasetLocal, 'S3': TrOCRDatasetS3}
         return classes[dataset_type]
     
 
-class CustomDataProcessor:
+class DataProcessor:
 
-    def __init__(self, processor):
-        self.processor = processor
+    def split(self, dataset_size, train_frac, val_frac):
+        random.seed(0)
+        all_indeces = list(range(dataset_size))
+        random.shuffle(all_indeces)
 
+        self.train_dataset_size = int(dataset_size * train_frac)
+        self.val_dataset_size = int(dataset_size * val_frac)
+        self.train_indeces = all_indeces[:self.train_dataset_size]
+        self.val_indeces = all_indeces[self.train_dataset_size:self.train_dataset_size + self.val_dataset_size]
+        self.test_indeces = all_indeces[self.train_dataset_size + self.val_dataset_size:]
+    
+
+class TrOCRDataProcessor(DataProcessor):
+
+    def __init__(self, trocr_processor=None):
+        self.processor = trocr_processor
+        
 
     def split(self, train_frac, val_frac, dataset_type, **dataset_params):
 
@@ -211,22 +243,14 @@ class CustomDataProcessor:
         dataset = dataset_class(**dataset_params)
         dataset_size = len(dataset)
 
-        random.seed(0)
-        all_indeces = list(range(dataset_size))
-        random.shuffle(all_indeces)
-
-        train_dataset_size = int(dataset_size * train_frac)
-        val_dataset_size = int(dataset_size * val_frac)
-        train_indeces = all_indeces[:train_dataset_size]
-        val_indeces = all_indeces[train_dataset_size:train_dataset_size + val_dataset_size]
-        test_indeces = all_indeces[train_dataset_size + val_dataset_size:]
+        super().split(dataset_size, train_frac, val_frac)
 
         # Make iterable datasets, which are iterated over chunks of data
-        train_dataset = dataset_class(indeces=train_indeces, **dataset_params)
-        val_dataset = dataset_class(indeces=val_indeces, **dataset_params)
-        test_dataset = dataset_class(indeces=test_indeces, **dataset_params)
+        train_dataset = dataset_class(indeces=self.train_indeces, **dataset_params)
+        val_dataset = dataset_class(indeces=self.val_indeces, **dataset_params)
+        test_dataset = dataset_class(indeces=self.test_indeces, **dataset_params)
 
-        return train_dataset, val_dataset, test_dataset, train_dataset_size
+        return train_dataset, val_dataset, test_dataset, self.train_dataset_size
 
 
     def __call__(
@@ -250,3 +274,73 @@ class CustomDataProcessor:
         test_dataset = MappedDataset(test_dataset, self.processor)
         
         return train_dataset, val_dataset, test_dataset, train_dataset_size
+
+
+class YOLODataProcessor(DataProcessor):
+
+    def __init__(self, dataset_name):
+        self.data_dir = dataset_name
+        self.images_path = os.path.join(self.data_dir, 'images')
+        self.labels_path = os.path.join(self.data_dir, 'labels')
+
+
+    def split(self, train_frac=0.85, val_frac=0.1):
+        dataset_size = len(os.listdir(self.images_path))
+        super().split(dataset_size, train_frac, val_frac)
+    
+
+    def restructure_dataset(self):
+        """Copy dataset and organize it with train, val and test subfolders"""
+        data_dir_abs = os.path.abspath(self.data_dir)
+        data_dir_new = f'{data_dir_abs}_yolo'
+        subfolders = ['images/train', 'images/val', 'images/test', 'labels/train', 'labels/val', 'labels/test']
+
+        # Create directory structure
+        for subfolder in subfolders:
+            os.makedirs(os.path.join(data_dir_new, subfolder), exist_ok=True)
+
+        for split, indeces in zip(
+            ('train', 'val', 'test'),
+            (self.train_indeces, self.val_indeces, self.test_indeces),
+        ):
+            # Get list of images for current split
+            img_lst = os.listdir(self.images_path)
+            img_lst = sorted([img_lst[i] for i in indeces])
+
+            # Get list of labels for current split
+            label_lst = os.listdir(self.labels_path)
+            label_lst = sorted([label_lst[i] for i in indeces])
+
+            for img, label in zip(img_lst, label_lst):
+                # Get abspath for image and label location and destination
+                img_path_old = os.path.abspath(os.path.join(self.images_path, img))
+                img_path_new = os.path.abspath(os.path.join(data_dir_new, 'images', split))
+                label_path_old = os.path.abspath(os.path.join(self.labels_path, label))
+                label_path_new = os.path.abspath(os.path.join(data_dir_new, 'labels', split))
+
+                # Copy files
+                shutil.copy(img_path_old, img_path_new)
+                shutil.copy(label_path_old, label_path_new)
+        return data_dir_new
+
+
+    def generate_yolo_config(self, dataset_path, config_path):
+        if hasattr(self, 'train_indeces'):
+            config = {
+                'path': dataset_path,
+                'train': 'images/train',
+                'val': 'images/val',
+                'test': 'images/test',
+                'nc': 1,
+                'names': ['text'],
+            }
+            with open(config_path, 'w') as f:
+                yaml.dump(config, f)
+        else:
+            raise Exception('There are no splits yet. Use "split" first')
+
+
+    def __call__(self, config_path, train_frac=0.85, val_frac=0.1, restructure=False):
+        self.split(train_frac, val_frac)
+        data_dir = self.restructure_dataset() if restructure else self.data_dir
+        self.generate_yolo_config(data_dir, config_path)
