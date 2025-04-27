@@ -13,6 +13,47 @@ services:
       - minio_data:/data
     command: minio server --address ":${MINIO_API_PORT}" --console-address ":${MINIO_UI_PORT}" /data
     restart: always
+  
+  airflow:
+    image: apache/airflow:latest
+    container_name: airflow
+    ports:
+      - ${AIRFLOW_PORT}:${AIRFLOW_PORT}
+    environment:
+      - _AIRFLOW_DB_MIGRATE=true
+      - _AIRFLOW_WWW_USER_CREATE=true
+      - _AIRFLOW_WWW_USER_USERNAME=${_AIRFLOW_WWW_USER_USERNAME}
+      - _AIRFLOW_WWW_USER_PASSWORD=${_AIRFLOW_WWW_USER_PASSWORD}
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - AIRFLOW__CORE__EXECUTOR=CeleryExecutor
+      - AIRFLOW__CELERY__BROKER_URL=redis://redis:${REDIS_PORT}/0
+      - AIRFLOW__CELERY__RESULT_BACKEND=redis://redis:${REDIS_PORT}/0
+    command: ["bash", "-c", airflow webserver --port 8080 & airflow scheduler"]
+    volumes:
+      - dags:/opt/airflow/dags
+    networks:
+      - airflow_network
+
+  redis:
+    image: redis:latest
+    container_name: redis
+    ports:
+      - ${REDIS_PORT}:${REDIS_PORT}
+    restart: always
+    networks:
+      - airflow_network
+  
+  worker:
+    build: ./trocr/train/
+    image: worker
+    container_name: airflow_worker
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=CeleryExecutor
+      - AIRFLOW__CELERY__BROKER_URL=redis://redis:${REDIS_PORT}/0
+      - AIRFLOW__CELERY__RESULT_BACKEND=db+sqlite:////opt/airflow/airflow.db
+    command: ["bash", "-c", "airflow celery worker"]
+    networks:
+      - airflow_network
 
   mlflow:
     image: ghcr.io/mlflow/mlflow
@@ -40,7 +81,7 @@ services:
   
   trocr_bot:
     build:
-      dockerfile: trocr/bot/Dockerfile
+      dockerfile: bot/Dockerfile
     container_name: trocr_bot
     depends_on:
       - trocr_api
@@ -49,8 +90,11 @@ services:
 
 volumes:
   minio_data:
+  dags:
   mlflow_data:
 
 networks:
   api_network:
+    driver: bridge
+  airflow_network:
     driver: bridge
