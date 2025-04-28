@@ -45,9 +45,8 @@ class TrOCRDatasetBase(IterableDataset):
     
 
     def __getitem__(self, idx):
-        idx_in_dataset = self.indeces[idx] if self.indeces else idx
-        image_name = self.image_names[idx_in_dataset]
-        text_name = self.text_names[idx_in_dataset]
+        image_name = self.image_names[idx]
+        text_name = self.text_names[idx]
         return image_name, text_name
 
 
@@ -325,6 +324,7 @@ class YOLODataProcessor(DataProcessor):
 
 
     def generate_yolo_config(self, dataset_path, config_path):
+        """Generate yaml file with dataset configuration"""
         if hasattr(self, 'train_indeces'):
             config = {
                 'path': dataset_path,

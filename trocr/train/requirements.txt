@@ -2,6 +2,7 @@ boto3==1.37.16
 datasets==3.2.0
 dotenv==0.9.9
 matplotlib==3.10.0
+mlflow==2.21.2
 numpy==2.2.1
 opencv-python==4.10.0.84
 sentence-transformers==3.1.1
