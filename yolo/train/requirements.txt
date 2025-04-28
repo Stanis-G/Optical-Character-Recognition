@@ -1,7 +1,7 @@
 boto3
 python-dotenv
 ultralytics
-mlflow
+mlflow==2.21.2
 --extra-index-url https://download.pytorch.org/whl/cu126
 torch==2.7.0
 torchaudio==2.7.0
